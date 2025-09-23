@@ -1,0 +1,128 @@
+@import 'variables';
+
+// 全局样式
+.main-scss {
+  font-family: 'Noto Sans SC', sans-serif;
+  
+  // 滚动条样式
+  ::-webkit-scrollbar {
+    width: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    background: $background-dark;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    background: $border-color;
+    border-radius: 3px;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    background: $text-secondary;
+  }
+  
+  // 按钮基础样式
+  .btn {
+    padding: $spacing-sm $spacing-md;
+    border: none;
+    border-radius: $radius-md;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: $spacing-sm;
+    
+    &:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+    
+    &.btn-primary {
+      background: $gradient-primary;
+      color: $text-primary;
+      
+      &:hover:not(:disabled) {
+        transform: translateY(-1px);
+        box-shadow: $shadow-md;
+      }
+    }
+    
+    &.btn-secondary {
+      background: $background-card;
+      color: $text-primary;
+      border: 1px solid $border-color;
+      
+      &:hover:not(:disabled) {
+        background: $border-color;
+      }
+    }
+    
+    &.btn-ghost {
+      background: transparent;
+      color: $text-secondary;
+      
+      &:hover:not(:disabled) {
+        color: $text-primary;
+        background: rgba(255, 255, 255, 0.05);
+      }
+    }
+  }
+  
+  // 输入框样式
+  .input {
+    padding: $spacing-sm $spacing-md;
+    background: $background-card;
+    border: 1px solid $border-color;
+    border-radius: $radius-md;
+    color: $text-primary;
+    font-size: 14px;
+    transition: all 0.2s ease;
+    
+    &:focus {
+      outline: none;
+      border-color: $primary-color;
+      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+    }
+    
+    &::placeholder {
+      color: $text-secondary;
+    }
+  }
+  
+  // 卡片样式
+  .card {
+    background: $gradient-card;
+    border-radius: $radius-lg;
+    padding: $spacing-lg;
+    box-shadow: $shadow-lg;
+    border: 1px solid $border-color;
+  }
+  
+  // 动画
+  .fade-enter-active,
+  .fade-leave-active {
+    transition: opacity 0.3s ease;
+  }
+  
+  .fade-enter-from,
+  .fade-leave-to {
+    opacity: 0;
+  }
+  
+  .slide-up-enter-active,
+  .slide-up-leave-active {
+    transition: all 0.3s ease;
+  }
+  
+  .slide-up-enter-from {
+    transform: translateY(20px);
+    opacity: 0;
+  }
+  
+  .slide-up-leave-to {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+}
