@@ -9,3 +9,17 @@ eureka:
 spring:
   application:
     name: provider
+
+feign:
+  client:
+    config:
+      default:
+        connectTimeout: 5000
+        readTimeout: 60000
+ai:
+  chat:
+    base-url: http://ai-chat-service:9000
+  asr:
+    base-url: http://ai-asr-service:9100
+  tts:
+    base-url: http://ai-tts-service:9200
