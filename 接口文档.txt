@@ -1,0 +1,19 @@
+# 1) 创建会话（返回 sessionId）
+curl -s -X POST "http://localhost:8080/api/v1/sessions?characterId=harry"
+
+# 假设拿到：SID=2e0f3e6c-8f3b-4a5e-8c4c-b1f87e2f2a28
+SID="2e0f3e6c-8f3b-4a5e-8c4c-b1f87e2f2a28"
+
+# 2) 发文本消息
+curl -s -X POST "http://localhost:8080/api/v1/sessions/$SID/messages" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"xxxxxxxxxxxxxx"}'
+
+# 3) 语音转文字（ASR）
+curl -s -X POST "http://localhost:8080/api/v1/media/asr" \
+  -F "audio=@/path/to/hello.wav"
+
+# 4) 文字转语音（TTS）
+curl -s -X POST "http://localhost:8080/api/v1/media/tts" \
+  -H "Content-Type: application/json" \
+  -d '{"text":"xxxxxxxxxxxxxxx。","voice":"en-US-female-1"}'
