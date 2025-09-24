@@ -36,11 +36,11 @@
     </header>
 
     <!-- 聊天区域 -->
-    <div class="chat-area" ref="chatArea">
-      <div class="chat-background">
-        <div class="background-image" :style="{ backgroundImage: `url(${character.background})` }"></div>
-      </div>
-      
+    <div 
+      class="chat-area" 
+      ref="chatArea"
+      :style="{ backgroundImage: `url(${character.background})` }"
+    >
       <div class="messages-container">
         <div v-if="messages.length === 0" class="welcome-message">
           <div class="welcome-content">
@@ -92,10 +92,9 @@
                 <div v-else class="voice-content">
                   <button 
                     class="play-button"
-                    @click="playVoiceMessage(message)"
-                    :disabled="isPlaying"
+                    @click="toggleVoicePlayback(message)"
                   >
-                    <svg v-if="!isPlaying" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                    <svg v-if="!isMessagePlaying(message)" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                       <polygon points="5,3 19,12 5,21"></polygon>
                     </svg>
                     <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor">
@@ -134,7 +133,7 @@
     </div>
 
     <!-- 输入区域 -->
-    <div class="input-area">
+    <div class="input-area bright-input-area" style="background: #e2e8f0 !important; border: none !important; min-height: 100px !important; padding: 20px !important; position: relative !important; z-index: 100 !important; box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1) !important;">
       <div class="quick-replies" v-if="showQuickReplies">
         <button
           v-for="reply in quickReplies"
@@ -146,12 +145,13 @@
         </button>
       </div>
       
-      <div class="input-container">
+      <div class="input-container" style="background: transparent !important;">
         <div class="input-wrapper">
           <textarea
             v-model="inputMessage"
             placeholder="发消息..."
             class="message-input"
+            style="border: none !important; outline: none !important; box-shadow: none !important; -webkit-appearance: none !important; -moz-appearance: none !important; appearance: none !important;"
             @keydown.enter.prevent="sendMessage"
             @input="handleInput"
             ref="messageInput"
@@ -199,15 +199,6 @@
                 <polygon points="22,2 15,22 11,13 2,9"></polygon>
               </svg>
             </button>
-            
-            <!-- 测试按钮 -->
-            <button
-              class="btn btn-secondary"
-              @click="createTestMessages"
-              style="margin-left: 8px;"
-            >
-              测试历史消息
-            </button>
           </div>
         </div>
       </div>
@@ -245,6 +236,7 @@ export default {
     const inputMessage = ref('')
     const voiceOutputEnabled = ref(true)
     const showQuickReplies = ref(false)
+    const currentlyPlayingMessageId = ref(null)
     
     const character = computed(() => characterStore.getCharacterById(props.characterId))
     const messages = computed(() => chatStore.messages)
@@ -256,6 +248,11 @@ export default {
       
       if (msgs.length === 0) return []
       
+      // 按时间排序，最新的消息在最后（今天的消息在最下面）
+      const sortedMsgs = [...msgs].sort((a, b) => {
+        return new Date(a.timestamp) - new Date(b.timestamp)
+      })
+      
       const grouped = []
       const now = new Date()
       const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
@@ -266,7 +263,7 @@ export default {
       
       let lastMessageDate = null
       
-      msgs.forEach((message, index) => {
+      sortedMsgs.forEach((message, index) => {
         const messageDate = new Date(message.timestamp)
         const messageDateOnly = new Date(messageDate.getFullYear(), messageDate.getMonth(), messageDate.getDate())
         
@@ -277,8 +274,9 @@ export default {
           // 判断时间显示格式
           let timeLabel = ''
           if (messageDateOnly.getTime() === today.getTime()) {
-            // 今天 - 不显示分隔符
-            console.log('Today message, no divider')
+            // 今天 - 显示"今天"分隔符
+            timeLabel = '今天'
+            console.log('Today message, adding divider:', timeLabel)
           } else if (messageDateOnly.getTime() === yesterday.getTime()) {
             timeLabel = '昨天'
             console.log('Yesterday message, adding divider:', timeLabel)
@@ -465,10 +463,27 @@ export default {
       }
     }
     
-    const playVoiceMessage = async (message) => {
-      if (isPlaying.value) return
+    const isMessagePlaying = (message) => {
+      return currentlyPlayingMessageId.value === message.id
+    }
+    
+    const toggleVoicePlayback = async (message) => {
+      if (currentlyPlayingMessageId.value === message.id) {
+        // 如果正在播放这条消息，则暂停
+        voiceChatManager.stopSpeaking()
+        currentlyPlayingMessageId.value = null
+        chatStore.setPlaying(false)
+        return
+      }
       
+      // 如果播放其他消息，先停止当前播放
+      if (currentlyPlayingMessageId.value) {
+        voiceChatManager.stopSpeaking()
+      }
+      
+      // 开始播放新消息
       try {
+        currentlyPlayingMessageId.value = message.id
         chatStore.setPlaying(true)
         
         if (message.audioUrl) {
@@ -483,9 +498,11 @@ export default {
           })
         }
         
+        currentlyPlayingMessageId.value = null
         chatStore.setPlaying(false)
       } catch (error) {
         console.error('播放失败:', error)
+        currentlyPlayingMessageId.value = null
         chatStore.setPlaying(false)
       }
     }
@@ -668,7 +685,8 @@ export default {
       toggleQuickReplies,
       toggleVoiceInput,
       toggleVoiceOutput,
-      playVoiceMessage,
+      toggleVoicePlayback,
+      isMessagePlaying,
       handleInput,
       formatTime,
       goBack,
@@ -678,7 +696,16 @@ export default {
 }
 </script>
 
-<style lang="scss" scoped>
+<style lang="scss">
+.bright-input-area {
+  background: #e2e8f0 !important;
+  border: none !important;
+  min-height: 100px !important;
+  box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.1) !important;
+  backdrop-filter: blur(10px) !important;
+  border-radius: 16px 16px 0 0 !important;
+}
+
 .chat-container {
   height: 100vh;
   display: flex;
@@ -769,23 +796,29 @@ export default {
   flex: 1;
   position: relative;
   overflow-y: auto;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-attachment: fixed;
   
-  .chat-background {
-    position: absolute;
+  // 添加半透明遮罩层
+  &::before {
+    content: '';
+    position: fixed;
     top: 0;
     left: 0;
     right: 0;
     bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
     z-index: 1;
-    
-    .background-image {
-      width: 100%;
-      height: 100%;
-      background-size: cover;
-      background-position: center;
-      background-repeat: no-repeat;
-      opacity: 0.1;
-    }
+    pointer-events: none;
+  }
+  
+  // 确保输入区域在遮罩层之上
+  .input-area {
+    position: relative;
+    z-index: 100 !important;
+    background: #e2e8f0 !important;
   }
   
   .messages-container {
@@ -807,7 +840,7 @@ export default {
   
   .welcome-content {
     text-align: center;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.6);
     padding: $spacing-xl;
     border-radius: $radius-lg;
     backdrop-filter: blur(10px);
@@ -1005,8 +1038,8 @@ export default {
 }
 
 .input-area {
-  background: $background-card;
-  border-top: 1px solid $border-color;
+  background: #e2e8f0 !important;
+  border-top: 1px solid #cbd5e1 !important;
   padding: $spacing-md $spacing-lg;
   
   .quick-replies {
@@ -1016,48 +1049,73 @@ export default {
     flex-wrap: wrap;
     
     .quick-reply-btn {
-      padding: $spacing-xs $spacing-sm;
-      background: rgba(255, 255, 255, 0.1);
-      border: 1px solid $border-color;
-      border-radius: $radius-md;
-      color: $text-secondary;
-      cursor: pointer;
-      font-size: 0.9rem;
-      transition: all 0.2s ease;
+      padding: $spacing-xs $spacing-sm !important;
+      background: #f8f8f8 !important;
+      border: 1px solid #d0d0d0 !important;
+      border-radius: $radius-md !important;
+      color: #000000 !important;
+      cursor: pointer !important;
+      font-size: 0.9rem !important;
+      transition: all 0.2s ease !important;
       
       &:hover {
-        background: rgba(255, 255, 255, 0.2);
-        color: $text-primary;
+        background: #e0e0e0 !important;
+        color: #000000 !important;
       }
     }
   }
   
   .input-container {
     .input-wrapper {
-      display: flex;
-      align-items: flex-end;
-      gap: $spacing-sm;
-      background: $background-dark;
-      border: 1px solid $border-color;
-      border-radius: $radius-lg;
-      padding: $spacing-sm;
+      display: flex !important;
+      align-items: flex-end !important;
+      gap: $spacing-sm !important;
+      background: rgba(241, 245, 249, 0.9) !important;
+      border: 1px solid #cbd5e1 !important;
+      border-radius: 16px !important;
+      padding: 12px !important;
+      backdrop-filter: blur(10px) !important;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1) !important;
       
       .message-input {
-        flex: 1;
-        background: transparent;
-        border: none;
-        color: $text-primary;
-        font-size: 1rem;
-        resize: none;
-        min-height: 20px;
-        max-height: 120px;
+        flex: 1 !important;
+        background: transparent !important;
+        border: none !important;
+        outline: none !important;
+        -webkit-appearance: none !important;
+        -moz-appearance: none !important;
+        appearance: none !important;
+        color: #1e293b !important;
+        font-size: 1rem !important;
+        font-weight: 400 !important;
+        resize: none !important;
+        min-height: 20px !important;
+        max-height: 120px !important;
+        padding: 8px 12px !important;
+        border-radius: 8px !important;
         
         &:focus {
-          outline: none;
+          outline: none !important;
+          border: none !important;
+          box-shadow: none !important;
+          -webkit-appearance: none !important;
+          -moz-appearance: none !important;
+          appearance: none !important;
+          background: rgba(255, 255, 255, 0.5) !important;
+        }
+        
+        &:invalid {
+          border: none !important;
+          outline: none !important;
+          box-shadow: none !important;
+          -webkit-appearance: none !important;
+          -moz-appearance: none !important;
+          appearance: none !important;
         }
         
         &::placeholder {
-          color: $text-secondary;
+          color: #64748b !important;
+          font-weight: 400 !important;
         }
       }
       
@@ -1066,18 +1124,31 @@ export default {
         gap: $spacing-xs;
         
         .btn {
-          padding: $spacing-sm;
-          min-width: 40px;
-          height: 40px;
+          padding: 10px !important;
+          min-width: 40px !important;
+          height: 40px !important;
+          background: rgba(226, 232, 240, 0.8) !important;
+          border: 1px solid #cbd5e1 !important;
+          color: #334155 !important;
+          transition: all 0.3s ease !important;
+          border-radius: 10px !important;
+          
+          &:hover {
+            background: rgba(241, 245, 249, 1) !important;
+            border-color: #94a3b8 !important;
+            transform: translateY(-1px) !important;
+            box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1) !important;
+          }
           
           &.active {
-            background: $primary-color;
-            color: $text-primary;
+            background: $primary-color !important;
+            color: $text-primary !important;
+            border-color: $primary-color !important;
           }
           
           &.recording {
-            background: $error-color;
-            color: $text-primary;
+            background: $error-color !important;
+            color: $text-primary !important;
             animation: pulse 1s infinite;
           }
           
@@ -1122,10 +1193,6 @@ export default {
   
   .message .message-content {
     max-width: 85%;
-  }
-  
-  .input-area {
-    padding: $spacing-sm $spacing-md;
   }
 }
 </style>

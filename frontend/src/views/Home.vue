@@ -142,6 +142,7 @@
 <script>
 import { useCharacterStore } from '../stores/characters'
 import { useRouter } from 'vue-router'
+import { onMounted } from 'vue'
 import PlaceholderImage from '../components/PlaceholderImage.vue'
 
 export default {
@@ -152,6 +153,11 @@ export default {
   setup() {
     const characterStore = useCharacterStore()
     const router = useRouter()
+    
+    // 初始化在线状态
+    onMounted(() => {
+      characterStore.initOnlineStatus()
+    })
     
     const handleSearch = () => {
       characterStore.setSearchQuery(characterStore.searchQuery)

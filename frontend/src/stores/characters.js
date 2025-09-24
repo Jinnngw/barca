@@ -71,7 +71,9 @@ export const useCharacterStore = defineStore('characters', {
       }
     ],
     searchQuery: '',
-    selectedCategory: 'all'
+    selectedCategory: 'all',
+    // 存储角色的在线状态，使用普通对象来确保状态一致性
+    characterOnlineStatus: {}
   }),
   
   getters: {
@@ -83,17 +85,52 @@ export const useCharacterStore = defineStore('characters', {
       }
       
       if (state.searchQuery) {
-        filtered = filtered.filter(char => 
-          char.name.toLowerCase().includes(state.searchQuery.toLowerCase()) ||
-          char.description.toLowerCase().includes(state.searchQuery.toLowerCase())
-        )
+        const query = state.searchQuery.toLowerCase().trim()
+        filtered = filtered.filter(char => {
+          // 创建搜索文本，包含所有可搜索的字段
+          const searchableText = [
+            char.name,
+            char.description,
+            char.personality,
+            char.category,
+            char.voice
+          ].join(' ').toLowerCase()
+          
+          // 支持多种模糊匹配方式
+          return (
+            // 1. 完全匹配
+            searchableText.includes(query) ||
+            // 2. 分词匹配（支持部分词匹配）
+            query.split(' ').every(word => 
+              word.length > 0 && searchableText.includes(word)
+            ) ||
+            // 3. 拼音首字母匹配（简单实现）
+            this.matchPinyinInitials(char.name, query) ||
+            // 4. 模糊字符匹配（允许字符顺序不完全一致）
+            this.fuzzyMatch(searchableText, query)
+          )
+        })
       }
       
-      // 添加随机在线状态并排序（在线在前，离线在后）
-      filtered = filtered.map(char => ({
-        ...char,
-        isOnline: Math.random() > 0.3 // 70%概率在线
-      })).sort((a, b) => {
+      // 添加持久化的在线状态并排序（在线在前，离线在后）
+      filtered = filtered.map(char => {
+        // 在 getter 中直接处理在线状态
+        let isOnline
+        if (!state.characterOnlineStatus[char.id]) {
+          // 生成随机在线状态（50%概率在线）
+          isOnline = Math.random() > 0.5
+          state.characterOnlineStatus[char.id] = isOnline
+          console.log(`[Getter] 生成新状态: ${char.id} = ${isOnline}`)
+        } else {
+          isOnline = state.characterOnlineStatus[char.id]
+          console.log(`[Getter] 使用已有状态: ${char.id} = ${isOnline}`)
+        }
+        
+        return {
+          ...char,
+          isOnline
+        }
+      }).sort((a, b) => {
         // 在线状态排序：在线在前，离线在后
         if (a.isOnline && !b.isOnline) return -1
         if (!a.isOnline && b.isOnline) return 1
@@ -117,17 +154,41 @@ export const useCharacterStore = defineStore('characters', {
       this.searchQuery = query
     },
     
+    // 初始化在线状态（用于测试）
+    initOnlineStatus() {
+      console.log('初始化在线状态...')
+      this.characters.forEach(char => {
+        if (!this.characterOnlineStatus[char.id]) {
+          this.characterOnlineStatus[char.id] = Math.random() > 0.5
+          console.log(`初始化: ${char.id} = ${this.characterOnlineStatus[char.id]}`)
+        }
+      })
+    },
+    
     setSelectedCategory(category) {
       this.selectedCategory = category
+    },
+    
+    // 获取角色的在线状态，如果不存在则生成并存储
+    getCharacterOnlineStatus(characterId) {
+      if (!this.characterOnlineStatus[characterId]) {
+        // 生成随机在线状态（50%概率在线）
+        const isOnline = Math.random() > 0.5
+        this.characterOnlineStatus[characterId] = isOnline
+        console.log(`[Action] 生成新状态: ${characterId} = ${isOnline}`)
+      } else {
+        console.log(`[Action] 使用已有状态: ${characterId} = ${this.characterOnlineStatus[characterId]}`)
+      }
+      return this.characterOnlineStatus[characterId]
     },
     
     getCharacterById(id) {
       const character = this.characters.find(char => char.id === id)
       if (character) {
-        // 添加随机在线状态
+        // 使用持久化的在线状态
         return {
           ...character,
-          isOnline: Math.random() > 0.3 // 70%概率在线
+          isOnline: this.getCharacterOnlineStatus(id)
         }
       }
       return character
