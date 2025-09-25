@@ -5,14 +5,8 @@ import org.qny.provider.ai.AsrClient;
 import org.qny.provider.ai.ChatClient;
 import org.qny.provider.ai.TtsClient;
 import org.qny.provider.core.MemoryRepo;
-import org.qny.provider.dto.MessageItem;
-import org.qny.provider.dto.SendMessageResponse;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
-
-import java.util.ArrayList;
-import java.util.List;
 
 @RestController
 @RequestMapping("/api/v1/media")
@@ -20,8 +14,6 @@ import java.util.List;
 public class MediaController {
     private final AsrClient asrClient;
     private final TtsClient ttsClient;
-    private final ChatClient chatClient;
-    private final MemoryRepo repo;
 
     @PostMapping("/asr")
     public AsrClient.AsrResult asr(@RequestPart("audio") MultipartFile audio) {

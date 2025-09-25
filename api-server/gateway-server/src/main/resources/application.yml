@@ -1,5 +1,5 @@
 server:
-  port: 8083
+  port: 8080
 eureka:
   client:
     service-url:
@@ -8,4 +8,11 @@ eureka:
     prefer-ip-address: true
 spring:
   application:
-    name: provider
+    name: gateway
+  cloud:
+    gateway:
+      routes:
+        - id: provider
+          uri: lb://provider
+          predicates:
+            - Path=/api/**  # 请求路径匹配
