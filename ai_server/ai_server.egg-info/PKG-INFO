@@ -1,0 +1,10 @@
+Metadata-Version: 2.4
+Name: ai_server
+Version: 0.1.0
+Summary: Minimal AI server for role-play streaming chat
+Requires-Python: >=3.9
+Requires-Dist: fastapi>=0.111.0
+Requires-Dist: uvicorn[standard]>=0.30.0
+Requires-Dist: sse-starlette>=1.8.2
+Requires-Dist: httpx>=0.27.0
+Requires-Dist: pydantic>=2.8.2
