@@ -51,7 +51,7 @@ public class SessionController {
 
         return new SendMessageResponse(userMessage, assistantMessage);
     }
-    @PostMapping(value = "/{sessionId}/messages", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    @PostMapping(value = "/{sessionId}/audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public SendMessageResponse sendAudio(@PathVariable String sessionId,
                                          @RequestPart("audio") MultipartFile audio) {
         // 1. 调用 ASR（音频转文本）

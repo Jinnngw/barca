@@ -8,7 +8,7 @@ fetch(`/api/v1/sessions/${sessionId}/messages`, {
     body: JSON.stringify({ text: "你好，哈利！" })
 })
 
-3.发送语音消息：POST /api/v1/sessions/{sessionId}/messages，上传音频文件。
+3.发送语音消息：POST /api/v1/sessions/{sessionId}/audio，上传音频文件。
 const formData = new FormData();
 formData.append("audio", audioFile);  // audioFile 是用户上传的音频文件
 fetch(`/api/v1/sessions/${sessionId}/messages`, {
