@@ -14,10 +14,22 @@ class ChatService(Protocol):
 
 class MockChatService:
     async def stream_chat(self, role: str, session_id: Optional[str], user_text: str):
-        persona = load_persona(role)
-        prompt = build_prompt(persona, user_text)
-        async for token in MockLLM().stream_generate(prompt):
-            yield token
+        # Keep persona and instructions internal (system prompt), do not expose
+        _persona = load_persona(role)
+        # We intentionally do NOT include persona/instructions in the generated output
+        # Simulate model response streaming based only on user input
+        punctuation = set(" \t\n\r,.!?，。！？；：、")
+        buffer = ""
+        async for piece in MockLLM().stream_generate(user_text):
+            for ch in piece:
+                buffer += ch
+                if ch in punctuation:
+                    word = buffer.strip()
+                    if word:
+                        yield word
+                    buffer = ""
+        if buffer.strip():
+            yield buffer.strip()
 
 
 class OpenAIChatService:
@@ -30,10 +42,24 @@ class OpenAIChatService:
 
     async def stream_chat(self, role: str, session_id: Optional[str], user_text: str):
         persona = load_persona(role)
-        system = persona
-        user = user_text
-        async for token in self.client.chat_stream(system=system, user=user):
-            yield token
+        # Build a system prompt containing persona and instructions only
+        system_full = build_prompt(persona, "")
+        # Strip conversation section if present to avoid leaking scaffolding
+        system_only = system_full.split("# Conversation", 1)[0].strip()
+
+        punctuation = set(" \t\n\r,.!?，。！？；：、")
+        buffer = ""
+        # Stream assistant deltas only, chunk by word/punctuation
+        async for delta in self.client.chat_stream(system=system_only, user=user_text):
+            for ch in delta:
+                buffer += ch
+                if ch in punctuation:
+                    word = buffer.strip()
+                    if word:
+                        yield word
+                    buffer = ""
+        if buffer.strip():
+            yield buffer.strip()
 
 
 def get_chat_service() -> ChatService:
