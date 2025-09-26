@@ -24,7 +24,7 @@ public class SessionController {
     private final AsrClient asrClient;
     private final TtsClient ttsClient;
 
-    @PostMapping
+    @PostMapping("/createSession")
     public String createSession(@RequestParam String characterId) {
         return repo.createSession(characterId);
     }
