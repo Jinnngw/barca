@@ -29,7 +29,7 @@ async def chat_stream(
 ) -> EventSourceResponse:
     # characterId 替代原来的 role
     role = payload.characterId
-    # 取最后一条 user 消息作为当前输入（简化版）
+    # 取最后一条 user 消息作为当前输入
     user_text = ""
     for m in reversed(payload.messages):
         if m.role == "user":
@@ -63,7 +63,7 @@ async def chat_once(payload: ChatRequest, sessionId: Optional[str] = Query(None)
             break
 
     service = get_chat_service()
-    # 累积生成内容（沿用服务的流式接口聚合为完整文本）
+    # 累积生成内容（
     result_chunks: List[str] = []
     async for token in service.stream_chat(role, sessionId, user_text):
         result_chunks.append(token)
