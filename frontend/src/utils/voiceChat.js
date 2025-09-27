@@ -1,4 +1,6 @@
 // 语音聊天工具类
+import { mediaAPI, handleAPIError } from '../services/api'
+
 export class VoiceChatManager {
   constructor() {
     this.mediaRecorder = null
@@ -117,9 +119,9 @@ export class VoiceChatManager {
     })
   }
 
-  // 文本转语音
-  speakText(text, options = {}) {
-    return new Promise((resolve, reject) => {
+  // 文本转语音 - 优先使用后端TTS API
+  async speakText(text, options = {}) {
+    return new Promise(async (resolve, reject) => {
       // 停止当前播放
       this.stopSpeaking()
       
@@ -166,50 +168,85 @@ export class VoiceChatManager {
         return
       }
       
-      const utterance = new SpeechSynthesisUtterance(text)
-      
-      // 设置语音参数
-      utterance.rate = options.rate || 0.9
-      utterance.pitch = options.pitch || 1
-      utterance.volume = Math.min(Math.max(options.volume || 1, 0), 1) // 确保音量在0-1范围内
-      utterance.lang = options.lang || 'zh-CN'
-      
-      console.log('语音播放设置:', {
-        text: text.substring(0, 20) + '...',
-        volume: utterance.volume,
-        rate: utterance.rate,
-        pitch: utterance.pitch,
-        isMuted: options.volume === 0
-      })
-      
-      // 尝试设置语音
-      const voices = this.speechSynthesis.getVoices()
-      const chineseVoice = voices.find(voice => 
-        voice.lang.includes('zh') || voice.lang.includes('CN')
-      )
-      
-      if (chineseVoice) {
-        utterance.voice = chineseVoice
-      }
-      
-      utterance.onend = () => {
-        console.log('语音播放结束')
-        resolve()
-      }
-      utterance.onerror = (event) => {
-        console.error('语音合成失败:', event)
-        console.log('尝试使用备用方案...')
-        // 使用setTimeout模拟播放完成
-        const estimatedDuration = text.length * 100 // 估算播放时间
-        setTimeout(() => {
-          console.log('语音播放结束（备用方案）')
+      try {
+        // 优先使用后端TTS API
+        console.log('使用后端TTS API:', text.substring(0, 20) + '...')
+        const ttsResponse = await mediaAPI.textToSpeech(text)
+        
+        // 播放后端返回的音频
+        const audio = new Audio(ttsResponse.audioUrl)
+        
+        audio.onended = () => {
+          console.log('后端TTS播放结束')
+          URL.revokeObjectURL(ttsResponse.audioUrl) // 清理资源
           resolve()
-        }, estimatedDuration)
+        }
+        
+        audio.onerror = (error) => {
+          console.error('后端TTS播放失败:', error)
+          URL.revokeObjectURL(ttsResponse.audioUrl) // 清理资源
+          // 降级到浏览器TTS
+          this.fallbackToBrowserTTS(text, options, resolve, reject)
+        }
+        
+        // 设置音量
+        audio.volume = Math.min(Math.max(options.volume || 1, 0), 1)
+        
+        await audio.play()
+        this.currentAudio = audio
+        
+      } catch (error) {
+        console.error('后端TTS失败，降级到浏览器TTS:', error)
+        // 降级到浏览器TTS
+        this.fallbackToBrowserTTS(text, options, resolve, reject)
       }
-      
-      this.currentUtterance = utterance
-      this.speechSynthesis.speak(utterance)
     })
+  }
+
+  // 降级到浏览器TTS
+  fallbackToBrowserTTS(text, options, resolve, reject) {
+    const utterance = new SpeechSynthesisUtterance(text)
+    
+    // 设置语音参数
+    utterance.rate = options.rate || 0.9
+    utterance.pitch = options.pitch || 1
+    utterance.volume = Math.min(Math.max(options.volume || 1, 0), 1)
+    utterance.lang = options.lang || 'zh-CN'
+    
+    console.log('浏览器TTS播放设置:', {
+      text: text.substring(0, 20) + '...',
+      volume: utterance.volume,
+      rate: utterance.rate,
+      pitch: utterance.pitch
+    })
+    
+    // 尝试设置语音
+    const voices = this.speechSynthesis.getVoices()
+    const chineseVoice = voices.find(voice => 
+      voice.lang.includes('zh') || voice.lang.includes('CN')
+    )
+    
+    if (chineseVoice) {
+      utterance.voice = chineseVoice
+    }
+    
+    utterance.onend = () => {
+      console.log('浏览器TTS播放结束')
+      resolve()
+    }
+    
+    utterance.onerror = (event) => {
+      console.error('浏览器TTS失败:', event)
+      // 使用setTimeout模拟播放完成
+      const estimatedDuration = text.length * 100
+      setTimeout(() => {
+        console.log('TTS播放结束（估算时间）')
+        resolve()
+      }, estimatedDuration)
+    }
+    
+    this.currentUtterance = utterance
+    this.speechSynthesis.speak(utterance)
   }
 
   // 停止语音播放
@@ -218,31 +255,42 @@ export class VoiceChatManager {
       console.log('立即停止语音播放')
       this.speechSynthesis.cancel()
     }
+    
+    // 停止音频播放
+    if (this.currentAudio) {
+      this.currentAudio.pause()
+      this.currentAudio.currentTime = 0
+      this.currentAudio = null
+    }
+    
     this.currentUtterance = null
   }
   
   // 动态调整音量（通过重新播放实现）
   adjustVolume(newVolume) {
-    if (this.currentUtterance && this.speechSynthesis.speaking) {
+    if ((this.currentUtterance && this.speechSynthesis.speaking) || this.currentAudio) {
       console.log('动态调整音量为:', newVolume)
-      // 由于Web Speech API不支持动态调整音量，我们需要重新播放
-      const currentText = this.currentUtterance.text
-      const currentRate = this.currentUtterance.rate
-      const currentPitch = this.currentUtterance.pitch
-      const currentLang = this.currentUtterance.lang
       
       // 停止当前播放
       this.stopSpeaking()
       
-      // 立即重新播放，使用新的音量
-      setTimeout(() => {
-        this.speakText(currentText, {
-          rate: currentRate,
-          pitch: currentPitch,
-          volume: newVolume,
-          lang: currentLang
-        })
-      }, 50) // 短暂延迟确保停止完成
+      // 如果有当前文本，重新播放
+      if (this.currentUtterance) {
+        const currentText = this.currentUtterance.text
+        const currentRate = this.currentUtterance.rate
+        const currentPitch = this.currentUtterance.pitch
+        const currentLang = this.currentUtterance.lang
+        
+        // 立即重新播放，使用新的音量
+        setTimeout(() => {
+          this.speakText(currentText, {
+            rate: currentRate,
+            pitch: currentPitch,
+            volume: newVolume,
+            lang: currentLang
+          })
+        }, 50) // 短暂延迟确保停止完成
+      }
     }
   }
 
@@ -265,22 +313,29 @@ export class VoiceChatManager {
     return this.speechSynthesis.getVoices()
   }
 
-  // 语音识别（需要额外的API支持）
+  // 语音识别 - 使用后端ASR API
   async recognizeSpeech(audioBlob) {
     try {
-      // 这里需要集成语音识别服务，如Web Speech API或第三方服务
-      // 目前返回模拟结果
-      return new Promise((resolve) => {
-        setTimeout(() => {
-          resolve({
-            text: '这是语音识别的结果',
-            confidence: 0.95
-          })
-        }, 1000)
-      })
+      console.log('开始语音识别，音频大小:', audioBlob.size)
+      
+      // 使用后端ASR API
+      const response = await mediaAPI.speechToText(audioBlob)
+      
+      console.log('ASR识别结果:', response)
+      
+      return {
+        text: response.text || response.transcript || '识别失败',
+        confidence: response.confidence || 0.8
+      }
     } catch (error) {
       console.error('语音识别失败:', error)
-      throw error
+      const errorMessage = handleAPIError(error)
+      
+      // 返回错误信息，但保持接口一致性
+      return {
+        text: `语音识别失败: ${errorMessage}`,
+        confidence: 0
+      }
     }
   }
 

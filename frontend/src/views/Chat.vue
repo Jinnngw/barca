@@ -212,6 +212,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useCharacterStore } from '../stores/characters'
 import { useChatStore } from '../stores/chat'
 import { voiceChatManager } from '../utils/voiceChat'
+import { testBackendConnection } from '../services/api'
 import PlaceholderImage from '../components/PlaceholderImage.vue'
 
 export default {
@@ -316,13 +317,32 @@ export default {
     })
     
     // 设置当前角色，确保聊天记录隔离
-    onMounted(() => {
-      chatStore.setCurrentCharacter(props.characterId)
+    onMounted(async () => {
+      try {
+        console.log('=== Chat组件挂载 ===')
+        console.log('接收到的characterId:', props.characterId)
+        console.log('characterId类型:', typeof props.characterId)
+        console.log('=== 开始设置角色 ===')
+        
+        await chatStore.setCurrentCharacter(props.characterId)
+        
+        console.log('=== 角色设置完成 ===')
+      } catch (error) {
+        console.error('=== 设置角色失败 ===')
+        console.error('错误详情:', error)
+        console.error('=== 设置角色失败结束 ===')
+        // 可以显示错误提示给用户
+      }
     })
     
     // 监听角色ID变化，切换聊天记录
-    watch(() => props.characterId, (newCharacterId) => {
-      chatStore.setCurrentCharacter(newCharacterId)
+    watch(() => props.characterId, async (newCharacterId) => {
+      try {
+        await chatStore.setCurrentCharacter(newCharacterId)
+      } catch (error) {
+        console.error('切换角色失败:', error)
+        // 可以显示错误提示给用户
+      }
     })
     const isTyping = computed(() => chatStore.isTyping)
     const isRecording = computed(() => chatStore.isRecording)
@@ -624,26 +644,53 @@ export default {
     }, { deep: true })
     
     // 监听录音完成事件
-    const handleRecordingComplete = (event) => {
+    const handleRecordingComplete = async (event) => {
       const { audioBlob, audioUrl, duration } = event.detail
       
-      // 添加语音消息
-      chatStore.addMessage({
-        type: 'user',
-        content: '语音消息',
-        isVoice: true,
-        duration: duration,
-        audioUrl: audioUrl,
-        audioBlob: audioBlob
-      })
-      
-      scrollToBottom()
-      
-      // 生成AI回复
-      setTimeout(async () => {
-        await chatStore.generateAIResponse(character.value, '语音消息', voiceOutputEnabled.value)
+      try {
+        // 使用ASR识别语音
+        const recognitionResult = await voiceChatManager.recognizeSpeech(audioBlob)
+        const recognizedText = recognitionResult.text
+        
+        // 添加语音消息
+        chatStore.addMessage({
+          type: 'user',
+          content: recognizedText,
+          isVoice: true,
+          duration: duration,
+          audioUrl: audioUrl,
+          audioBlob: audioBlob
+        })
+        
         scrollToBottom()
-      }, 1000)
+        
+        // 生成AI回复
+        setTimeout(async () => {
+          await chatStore.generateAIResponse(character.value, recognizedText, voiceOutputEnabled.value)
+          scrollToBottom()
+        }, 1000)
+        
+      } catch (error) {
+        console.error('语音识别失败:', error)
+        
+        // 降级处理：添加原始语音消息
+        chatStore.addMessage({
+          type: 'user',
+          content: '语音消息',
+          isVoice: true,
+          duration: duration,
+          audioUrl: audioUrl,
+          audioBlob: audioBlob
+        })
+        
+        scrollToBottom()
+        
+        // 生成AI回复
+        setTimeout(async () => {
+          await chatStore.generateAIResponse(character.value, '语音消息', voiceOutputEnabled.value)
+          scrollToBottom()
+        }, 1000)
+      }
     }
     
     onMounted(() => {
@@ -657,6 +704,11 @@ export default {
       if (!support.supported) {
         console.warn('浏览器不完全支持语音功能')
       }
+      
+      // 测试后端连接
+      setTimeout(() => {
+        testBackendConnection()
+      }, 2000)
     })
     
     onUnmounted(() => {
