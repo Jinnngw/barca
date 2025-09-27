@@ -35,9 +35,9 @@ class MockChatService:
 class OpenAIChatService:
     def __init__(self) -> None:
         self.client = OpenAILLM(
-            api_key=os.environ.get("OPENAI_API_KEY", ""),
-            model=os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-            base_url=os.environ.get("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+            api_key="sk-8b4e21c2efb5e8cc357dc1f3932dca4d644b79758d2a7bd2fe3d053ca809d5e2",
+            model="qwen3-max",
+            base_url="https://openai.qiniu.com/v1",
         )
 
     async def stream_chat(self, role: str, session_id: Optional[str], user_text: str):

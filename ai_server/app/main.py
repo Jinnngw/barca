@@ -1,9 +1,10 @@
 import os
 import json
+import uuid
 from typing import AsyncGenerator, Dict, Optional, List, Literal
 from io import BytesIO
 
-from fastapi import FastAPI, Request, Query
+from fastapi import FastAPI, Request, Query, Path, Form, File, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
@@ -11,6 +12,9 @@ from pydantic import BaseModel
 from ai_server.app.services import get_chat_service
 
 app = FastAPI(title="AI Server (FastAPI)")
+
+# ---- Global session storage ----
+SESSIONS: Dict[str, Dict] = {}
 
 # ---- Request models ----
 class ChatMessage(BaseModel):
@@ -21,54 +25,116 @@ class ChatRequest(BaseModel):
     characterId: str
     messages: List[ChatMessage]
 
+class TextMessageRequest(BaseModel):
+    text: str
 
-@app.post("/api/chat/stream")
-async def chat_stream(
-    payload: ChatRequest,
-    sessionId: Optional[str] = Query(None),
-) -> EventSourceResponse:
-    # characterId 替代原来的 role
-    role = payload.characterId
-    # 取最后一条 user 消息作为当前输入
-    user_text = ""
-    for m in reversed(payload.messages):
-        if m.role == "user":
-            user_text = m.content
-            break
+class TTSRequest(BaseModel):
+    text: str
 
+
+# ---- V1 API Endpoints ----
+
+@app.post("/api/v1/sessions", tags=["sessions"], summary="Create a new chat session")
+async def create_session(
+    characterId: str = Query(..., description="Character ID, e.g. harry"),
+) -> Dict[str, str]:
+    session_id = str(uuid.uuid4())
+    SESSIONS[session_id] = {
+        "characterId": characterId,
+        "history": []
+    }
+    return {"sessionId": session_id, "characterId": characterId}
+
+
+@app.post("/api/v1/sessions/{sessionId}/messages", tags=["sessions"], summary="Send a text message")
+async def send_message(
+    sessionId: str = Path(..., description="Session ID"),
+    body: TextMessageRequest = None,
+    request: Request = None,
+    stream: Optional[bool] = Query(False, description="Enable streaming"),
+) -> JSONResponse:
+    # Check if session exists
+    if sessionId not in SESSIONS:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    
+    # Check for streaming via query param or Accept header
+    accept_header = request.headers.get("accept", "").lower()
+    is_streaming = stream or "text/event-stream" in accept_header
+    
+    # Use Pydantic model if available, otherwise fallback to manual parsing
+    if body and body.text:
+        text = body.text
+    else:
+        # Fallback parsing for non-JSON requests
+        content_type = request.headers.get("content-type", "").lower()
+        if "application/json" in content_type:
+            body_dict = await request.json()
+            text = body_dict.get("text", "")
+        else:
+            form = await request.form()
+            text = form.get("text", "")
+    
+    if not text:
+        return JSONResponse({"error": "No text provided"}, status_code=400)
+    
+    # Add user message to history
+    session = SESSIONS[sessionId]
+    session["history"].append({"role": "user", "content": text})
+    
     service = get_chat_service()
+    character_id = session["characterId"]
+    
+    if is_streaming:
+        # Streaming response
+        async def event_generator() -> AsyncGenerator[dict, None]:
+            buffer = ""
+            punctuation = set(" \t\n\r,.!?，。！？；：、")
+            async for token in service.stream_chat(character_id, sessionId, text):
+                buffer += token
+                if token in punctuation:
+                    word = buffer.strip()
+                    if word:
+                        yield {"event": "message", "data": word}
+                    buffer = ""
+            if buffer.strip():
+                yield {"event": "message", "data": buffer.strip()}
+        
+        return EventSourceResponse(event_generator())
+    else:
+        # Non-streaming response
+        result_chunks: List[str] = []
+        async for token in service.stream_chat(character_id, sessionId, text):
+            result_chunks.append(token)
+        ai_response = "".join(result_chunks).strip()
+        
+        # Add AI response to history
+        session["history"].append({"role": "assistant", "content": ai_response})
+        
+        return JSONResponse({"text": ai_response})
 
-    async def event_generator() -> AsyncGenerator[dict, None]:
-        buffer = ""
-        punctuation = set(" \t\n\r,.!?，。！？；：、")
-        async for token in service.stream_chat(role, sessionId, user_text):
-            buffer += token
-            if token in punctuation:
-                word = buffer.strip()
-                if word:
-                    yield {"event": "message", "data": word}
-                buffer = ""
-        if buffer.strip():
-            yield {"event": "message", "data": buffer.strip()}
 
-    return EventSourceResponse(event_generator())
-
-@app.post("/api/chat")
-async def chat_once(payload: ChatRequest, sessionId: Optional[str] = Query(None)) -> JSONResponse:
-    role = payload.characterId
-    user_text = ""
-    for m in reversed(payload.messages):
-        if m.role == "user":
-            user_text = m.content
-            break
-
-    service = get_chat_service()
-    # 累积生成内容（
-    result_chunks: List[str] = []
-    async for token in service.stream_chat(role, sessionId, user_text):
-        result_chunks.append(token)
-    text = "".join(result_chunks).strip()
-    return JSONResponse({"text": text})
+@app.post("/api/v1/sessions/{sessionId}/audio", tags=["sessions"], summary="Send an audio message")
+async def send_audio(
+    sessionId: str = Path(..., description="Session ID"),
+    audio: UploadFile = File(..., description="Audio file"),
+) -> JSONResponse:
+    # Check if session exists
+    if sessionId not in SESSIONS:
+        return JSONResponse({"error": "Session not found"}, status_code=404)
+    
+    # Read audio file size
+    audio_data = await audio.read()
+    audio_size = len(audio_data)
+    
+    # Generate message ID
+    message_id = str(uuid.uuid4())
+    
+    return JSONResponse({
+        "sessionId": sessionId,
+        "messageId": message_id,
+        "type": "audio",
+        "audioBytes": audio_size,
+    })
 
 
 @app.get("/health")
@@ -76,77 +142,37 @@ async def health() -> Dict[str, str]:
     return {"status": "ok"}
 
 
-# -----------------------------
-# Placeholder APIs for swagger
-# -----------------------------
-
-@app.post("/api/v1/sessions", tags=["sessions"], summary="Create a chat session")
-async def create_session(
-    characterId: str = Query(..., description="Character ID, e.g. harry"),
-) -> Dict[str, str]:
-    session_id = f"sess_{characterId}_demo"
-    return {"sessionId": session_id, "characterId": characterId}
-
-
-@app.post(
-    "/api/v1/sessions/{sessionId}/messages",
-    tags=["sessions"],
-    summary="Send a message (JSON text or audio upload)",
-)
-async def send_message(sessionId: str, request: Request) -> JSONResponse:
-    content_type = request.headers.get("content-type", "").lower()
-
-    if "application/json" in content_type:
-        body = await request.json()
-        text = str(body.get("text", ""))
-        return JSONResponse(
-            {
-                "sessionId": sessionId,
-                "messageId": "msg_demo",
-                "type": "text",
-                "text": text,
-            }
-        )
-
-    # Assume multipart/form-data for audio upload or form text
-    form = await request.form()
-    audio = form.get("audio")  # type: ignore[assignment]
-    text = form.get("text")
-    audio_size = 0
-    if hasattr(audio, "read"):
-        data = await audio.read()  # type: ignore[attr-defined]
-        audio_size = len(data)
-
-    return JSONResponse(
-        {
-            "sessionId": sessionId,
-            "messageId": "msg_demo",
-            "type": "audio" if audio else "text",
-            "text": text or "",
-            "audioBytes": audio_size,
-        }
-    )
-
+# ---- Media Endpoints ----
 
 @app.post("/api/v1/media/asr", tags=["media"], summary="Upload audio and get text")
-async def asr(request: Request) -> Dict[str, str]:
-    form = await request.form()
-    _audio = form.get("audio")
+async def asr(
+    audio: UploadFile = File(..., description="Audio file"),
+) -> Dict[str, str]:
+    # Read audio file (placeholder implementation)
+    audio_data = await audio.read()
+    audio_size = len(audio_data)
+    
     # Placeholder transcript
-    return {"text": "This is a placeholder transcript."}
+    return {"text": f"This is a placeholder transcript for {audio_size} bytes of audio."}
 
 
 @app.post("/api/v1/media/tts", tags=["media"], summary="Upload text and get audio")
-async def tts(request: Request) -> StreamingResponse:
-    # Accept JSON or form
-    content_type = request.headers.get("content-type", "").lower()
-    text = ""
-    if "application/json" in content_type:
-        body = await request.json()
-        text = str(body.get("text", ""))
+async def tts(
+    body: TTSRequest = None,
+    request: Request = None,
+) -> StreamingResponse:
+    # Use Pydantic model if available, otherwise fallback to manual parsing
+    if body and body.text:
+        text = body.text
     else:
-        form = await request.form()
-        text = str(form.get("text", ""))
+        # Fallback parsing for non-JSON requests
+        content_type = request.headers.get("content-type", "").lower()
+        if "application/json" in content_type:
+            body_dict = await request.json()
+            text = str(body_dict.get("text", ""))
+        else:
+            form = await request.form()
+            text = str(form.get("text", ""))
 
     # Produce placeholder audio bytes
     dummy_audio = b"FAKEAUDIO"
