@@ -5,6 +5,7 @@ import base64
 from typing import AsyncGenerator, Dict, Optional, List, Literal
 from io import BytesIO
 
+import httpx
 from fastapi import FastAPI, Request, Query, Path, Form, File, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
@@ -205,27 +206,66 @@ async def asr(
     return {"text": f"This is a placeholder transcript for {audio_size} bytes of audio."}
 
 
-@app.post("/v1/tts", tags=["media"], summary="Upload text and get audio")
+@app.post("/api/v1/media/tts", tags=["media"], summary="Upload text and get audio")
 async def tts(
-    request: TtsRequest,
-) -> TtsResult:
-    """
-    TTS interface for external services to call via Feign.
-    Converts text to speech and returns audio data in Base64 format.
-    """
-    # 这里实现实际的 TTS 逻辑
-    # 目前返回模拟的音频数据
-    # 在实际应用中，这里会调用 TTS 服务生成音频文件
-    
-    # 生成模拟的音频数据（Base64 编码）
-    dummy_audio_bytes = b"FAKEAUDIO"
-    audio_data_base64 = base64.b64encode(dummy_audio_bytes).decode('utf-8')
-    
-    # 模拟音频时长（毫秒）
-    estimated_duration = len(request.text) * 100  # 简单估算：每个字符100毫秒
-    
-    return TtsResult(
-        audioData=audio_data_base64,
-        format="mp3",
-        duration=estimated_duration
-    )
+        body: TTSRequest = None,
+        request: Request = None,
+) -> StreamingResponse:
+    # Use Pydantic model if available, otherwise fallback to manual parsing
+    if body and body.text:
+        text = body.text
+    else:
+        # Fallback parsing for non-JSON requests
+        content_type = request.headers.get("content-type", "").lower()
+        if "application/json" in content_type:
+            body_dict = await request.json()
+            text = str(body_dict.get("text", ""))
+        else:
+            form = await request.form()
+            text = str(form.get("text", ""))
+
+    if not text:
+        return JSONResponse({"error": "No text provided"}, status_code=400)
+
+    api_key = os.environ.get("QINIU_API_KEY", "sk-8b4e21c2efb5e8cc357dc1f3932dca4d644b79758d2a7bd2fe3d053ca809d5e2")
+
+    try:
+        # Call Qiniu Cloud TTS API
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://openai.qiniu.com/v1/voice/tts",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "text": text,
+                    "voice_type": "zh-CN-XiaoxiaoNeural",
+                    "encoding": "mp3",
+                    "speed_ratio": 1.0
+                }
+            )
+            response.raise_for_status()
+
+            # Return the audio stream
+            return StreamingResponse(
+                BytesIO(response.content),
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": "attachment; filename=tts.mp3"},
+            )
+
+    except httpx.HTTPStatusError as e:
+        return JSONResponse(
+            {"error": f"TTS API error: {e.response.status_code} - {e.response.text}"},
+            status_code=e.response.status_code
+        )
+    except httpx.RequestError as e:
+        return JSONResponse(
+            {"error": f"TTS request error: {str(e)}"},
+            status_code=500
+        )
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"TTS processing error: {str(e)}"},
+            status_code=500
+        )
