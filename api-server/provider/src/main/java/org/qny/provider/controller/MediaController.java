@@ -17,7 +17,7 @@ public class MediaController {
 
     @PostMapping("/asr")
     public AsrClient.AsrResult asr(@RequestPart("audio") MultipartFile audio) {
-        return asrClient.asr(audio);
+        return asrClient.asr((AsrClient.AsrRequest) audio);
     }
 
     @PostMapping("/tts")
