@@ -2,6 +2,7 @@ import os
 import json
 import uuid
 import base64
+from datetime import datetime
 from typing import AsyncGenerator, Dict, Optional, List, Literal
 from io import BytesIO
 
@@ -47,6 +48,9 @@ class TtsResult(BaseModel):
     duration: int   # 音频时长（毫秒）
 
 # ASR接口数据模型
+class AsrRequest(BaseModel):
+    audioData: str  # Base64 编码的音频数据
+
 class AsrResult(BaseModel):
     text: str  # 识别出的文本
 
@@ -259,14 +263,42 @@ async def tts(
             
             # 解析响应
             response_data = response.json()
+            print(f"TTS Response: {response_data}")
+            
+            # 获取音频数据
             audio_data_base64 = response_data.get("data", "")
             duration_str = response_data.get("addition", {}).get("duration", "0")
+            
+            # 检查音频数据是否有效
+            if not audio_data_base64:
+                print("Warning: 音频数据为空")
+                return TtsResult(
+                    audioData="",
+                    format="mp3", 
+                    duration=0
+                )
+            
+            # 检查 Base64 数据是否包含重复的填充字符
+            if audio_data_base64.count('A') > len(audio_data_base64) * 0.8:
+                print("Warning: 检测到异常的 Base64 数据（包含过多重复字符）")
+                # 尝试清理数据
+                audio_data_base64 = audio_data_base64.rstrip('A')
+                if not audio_data_base64:
+                    print("Error: 清理后音频数据为空")
+                    return TtsResult(
+                        audioData="",
+                        format="mp3",
+                        duration=0
+                    )
             
             # 转换时长为整数
             try:
                 duration = int(duration_str)
             except (ValueError, TypeError):
                 duration = len(request.text) * 100  # 估算时长
+            
+            print(f"Audio data length: {len(audio_data_base64)}")
+            print(f"Duration: {duration}")
             
             return TtsResult(
                 audioData=audio_data_base64,
@@ -325,82 +357,32 @@ async def tts(
 
 @app.post("/v1/asr", tags=["media"], summary="Upload audio and get text")
 async def asr(
-    audio: UploadFile = File(..., description="Audio file"),
+    request: AsrRequest,
 ) -> AsrResult:
     """
     ASR interface for external services to call via Feign.
     Converts audio to text using Qiniu Cloud ASR service.
+    Accepts Base64 encoded audio data.
     """
     try:
-        # 读取音频文件
-        audio_data = await audio.read()
-        audio_filename = audio.filename or "audio.mp3"
+        # 解码 Base64 音频数据
+        try:
+            audio_data = base64.b64decode(request.audioData)
+        except Exception as e:
+            print(f"Base64 decode error: {str(e)}")
+            return AsrResult(text="")
         
-        # 检测音频格式
-        audio_format = "mp3"  # 默认格式
-        if audio_filename.lower().endswith(('.wav', '.raw', '.ogg')):
-            audio_format = audio_filename.split('.')[-1].lower()
-        elif audio_filename.lower().endswith('.mp3'):
-            audio_format = "mp3"
-        
-        print(f"ASR Request: filename='{audio_filename}', format='{audio_format}', size={len(audio_data)} bytes")
+        print(f"ASR Request: size={len(audio_data)} bytes")
+        print(f"Base64 data length: {len(request.audioData)} characters")
+        print(f"Base64 data preview: {request.audioData[:50]}...")
         
         # 调用七牛云 ASR 服务
         api_key = os.environ.get("QINIU_API_KEY", "sk-8b4e21c2efb5e8cc357dc1f3932dca4d644b79758d2a7bd2fe3d053ca809d5e2")
         
-        # 将音频文件上传到七牛云对象存储，获取公网 URL
-        try:
-            # 生成唯一的文件名
-            import uuid
-            import time
-            timestamp = int(time.time())
-            unique_id = str(uuid.uuid4())[:8]
-            audio_filename = f"asr_audio_{timestamp}_{unique_id}.{audio_format}"
-            
-            # 上传到七牛云对象存储
-            # 注意：这里需要配置七牛云对象存储的 Access Key 和 Secret Key
-            from qiniu import Auth, put_data
-            
-            # 从环境变量获取七牛云配置
-            qiniu_access_key = os.environ.get("QINIU_ACCESS_KEY", "")
-            qiniu_secret_key = os.environ.get("QINIU_SECRET_KEY", "")
-            qiniu_bucket_name = os.environ.get("QINIU_BUCKET_NAME", "")
-            qiniu_domain = os.environ.get("QINIU_DOMAIN", "")
-            
-            print(f"七牛云配置检查:")
-            print(f"  Access Key: {'已配置' if qiniu_access_key else '未配置'}")
-            print(f"  Secret Key: {'已配置' if qiniu_secret_key else '未配置'}")
-            print(f"  Bucket Name: {qiniu_bucket_name}")
-            print(f"  Domain: {qiniu_domain}")
-            
-            if not qiniu_access_key or not qiniu_secret_key:
-                print("Error: 七牛云对象存储配置缺失")
-                return AsrResult(text="")
-            
-            # 构建七牛云认证对象
-            q = Auth(qiniu_access_key, qiniu_secret_key)
-            
-            # 生成上传 token
-            token = q.upload_token(qiniu_bucket_name, audio_filename, 3600)
-            
-            # 上传文件
-            ret, info = put_data(token, audio_filename, audio_data)
-            
-            if info.status_code == 200:
-                # 构建公网访问 URL
-                audio_url = f"https://{qiniu_domain}/{audio_filename}"
-                print(f"✅ Audio uploaded successfully: {audio_url}")
-                print(f"📁 File info: {ret}")
-            else:
-                print(f"❌ Upload failed: {info}")
-                print(f"📋 Error details: {ret}")
-                return AsrResult(text="")
-                    
-        except Exception as e:
-            print(f"Upload error: {str(e)}")
-            return AsrResult(text="")
+        print(f"API Key: {api_key[:20]}...")
         
         async with httpx.AsyncClient(timeout=30.0) as client:
+            print("Sending request to Qiniu ASR API...")
             response = await client.post(
                 "https://openai.qiniu.com/v1/voice/asr",
                 headers={
@@ -409,18 +391,22 @@ async def asr(
                 },
                 json={
                     "model": "asr",
-                    "audio": {
-                        "format": audio_format,
-                        "url": audio_url
-                    }
+                    "audioBase64": request.audioData,  # 使用 audioBase64 参数
+                    "format": "mp3"
                 }
             )
+            print(f"Response status: {response.status_code}")
+            print(f"Response headers: {dict(response.headers)}")
+            
             response.raise_for_status()
             
             # 解析响应
             response_data = response.json()
+            print(f"Full response: {response_data}")
+            
             recognized_text = response_data.get("data", {}).get("result", {}).get("text", "")
             
+            print(f"ASR Result: '{recognized_text}'")
             return AsrResult(text=recognized_text)
             
     except httpx.HTTPStatusError as e:

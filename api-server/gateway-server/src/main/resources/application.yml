@@ -17,6 +17,10 @@ spring:
         cors-configurations:
           '[/**]':
             allowedOrigins:
+              - http://localhost:3000
+              - http://127.0.0.1:3000
+              - http://localhost:8080
+              - http://127.0.0.1:8080
               - http://223.104.83.81:3000
               - https://wo1141777op6.vicp.fun
             allowedMethods:

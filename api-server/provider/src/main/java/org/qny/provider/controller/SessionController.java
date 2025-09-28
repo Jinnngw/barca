@@ -12,7 +12,9 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 @RestController
@@ -46,7 +48,7 @@ public class SessionController {
         repo.appendMessage(sessionId, assistantMessage);
 
         // 可选：TTS 转语音
-        TtsClient.TtsResult ttsResult = ttsClient.tts(new TtsClient.TtsRequest(response.getText(), sessionId));
+        TtsClient.TtsResult ttsResult = ttsClient.tts(new TtsClient.TtsRequest(response.getText(), "en-US-female-1"));
         assistantMessage.setAudioData(ttsResult.getAudioData());
         assistantMessage.setAudioFormat(ttsResult.getFormat());
         assistantMessage.setAudioDuration(ttsResult.getDuration());
@@ -55,9 +57,11 @@ public class SessionController {
     }
     @PostMapping(value = "/{sessionId}/audio", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public SendMessageResponse sendAudio(@PathVariable String sessionId,
-                                         @RequestPart("audio") MultipartFile audio) {
+                                         @RequestPart("audio") MultipartFile audio) throws IOException {
         // 1. 调用 ASR（音频转文本）
-        AsrClient.AsrResult asr = asrClient.asr(audio);  // 调用 asrClient 进行语音转文本
+        String audioBase64 = Base64.getEncoder().encodeToString(audio.getBytes());
+        AsrClient.AsrRequest request = new AsrClient.AsrRequest(audioBase64);
+        AsrClient.AsrResult asr = asrClient.asr(request);  // 调用 asrClient 进行语音转文本
         String userText = asr.getText();  // 获取 ASR 转换后的文本
 
         // 2. 将转换后的文本交给 AI 模型生成回复
@@ -74,7 +78,7 @@ public class SessionController {
         // 3. 保存 AI 回复的消息
         MessageItem assistantMessage = MemoryRepo.msg("assistant", response.getText(), null);
         repo.appendMessage(sessionId, assistantMessage);
-
+        assistantMessage.setAudioUrl(asr.getAudioUrl());
         // 4. 可选：调用 TTS 生成语音，返回音频数据
         TtsClient.TtsResult ttsResult = ttsClient.tts(new TtsClient.TtsRequest(response.getText(), sessionId));
         assistantMessage.setAudioData(ttsResult.getAudioData());
