@@ -1,10 +1,11 @@
 import os
 from typing import AsyncGenerator, Protocol, Optional
 
-from ai_server.app.support.persona import load_persona
-from ai_server.app.support.prompt import build_prompt
-from ai_server.app.vendors.mock_llm import MockLLM
-from ai_server.app.vendors.openai_llm import OpenAILLM
+from app.support.persona import load_persona
+from app.support.prompt import build_prompt
+from app.vendors.openai_llm import OpenAILLM
+from app.vendors.mock_llm import MockLLM
+import config
 
 
 class ChatService(Protocol):
@@ -14,30 +15,29 @@ class ChatService(Protocol):
 
 class MockChatService:
     async def stream_chat(self, role: str, session_id: Optional[str], user_text: str):
-        # Keep persona and instructions internal (system prompt), do not expose
-        _persona = load_persona(role)
-        # We intentionally do NOT include persona/instructions in the generated output
-        # Simulate model response streaming based only on user input
+        # 直接使用MockLLM，简化逻辑
         punctuation = set(" \t\n\r,.!?，。！？；：、")
         buffer = ""
-        async for piece in MockLLM().stream_generate(user_text):
-            for ch in piece:
-                buffer += ch
-                if ch in punctuation:
-                    word = buffer.strip()
-                    if word:
-                        yield word
-                    buffer = ""
+        
+        # 使用MockLLM
+        async for piece in MockLLM().stream_generate(user_text, role):
+            buffer += piece
+            if piece in punctuation:
+                word = buffer.strip()
+                if word:
+                    yield word
+                buffer = ""
         if buffer.strip():
             yield buffer.strip()
 
 
 class OpenAIChatService:
     def __init__(self) -> None:
+        # 使用七牛云的 OpenAI 兼容 API 服务
         self.client = OpenAILLM(
-            api_key="sk-8b4e21c2efb5e8cc357dc1f3932dca4d644b79758d2a7bd2fe3d053ca809d5e2",
-            model="qwen3-max",
-            base_url="https://openai.qiniu.com/v1",
+            api_key=config.OPENAI_API_KEY,
+            model=config.OPENAI_MODEL,
+            base_url=config.OPENAI_BASE_URL,
         )
 
     async def stream_chat(self, role: str, session_id: Optional[str], user_text: str):
@@ -63,7 +63,7 @@ class OpenAIChatService:
 
 
 def get_chat_service() -> ChatService:
-    provider = os.environ.get("AI_PROVIDER", "mock").lower()
+    provider = os.environ.get("AI_PROVIDER", "openai").lower()
     if provider == "openai":
         return OpenAIChatService()
     return MockChatService()

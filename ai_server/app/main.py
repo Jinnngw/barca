@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import base64
 from typing import AsyncGenerator, Dict, Optional, List, Literal
 from io import BytesIO
 
@@ -9,7 +10,7 @@ from fastapi.responses import JSONResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
 from pydantic import BaseModel
 
-from ai_server.app.services import get_chat_service
+from app.services import get_chat_service
 
 app = FastAPI(title="AI Server (FastAPI)")
 
@@ -30,6 +31,19 @@ class TextMessageRequest(BaseModel):
 
 class TTSRequest(BaseModel):
     text: str
+
+class ChatResponse(BaseModel):
+    text: str
+
+# 新的 TTS 接口数据模型
+class TtsRequest(BaseModel):
+    text: str
+    voice: str
+
+class TtsResult(BaseModel):
+    audioData: str  # Base64 编码的音频数据
+    format: str     # 音频格式，如 "mp3", "wav"
+    duration: int   # 音频时长（毫秒）
 
 
 # ---- V1 API Endpoints ----
@@ -113,6 +127,41 @@ async def send_message(
         return JSONResponse({"text": ai_response})
 
 
+@app.post("/v1/chat", tags=["chat"], summary="Chat with AI character")
+async def chat(
+    request: ChatRequest,
+) -> ChatResponse:
+    """
+    Chat interface for external services to call via Feign.
+    Uses characterId and messages directly without session management.
+    """
+    # Extract the last user message from the messages list
+    if not request.messages:
+        return ChatResponse(text="No messages provided")
+    
+    # Get the last user message
+    last_message = None
+    for msg in reversed(request.messages):
+        if msg.role == "user":
+            last_message = msg.content
+            break
+    
+    if not last_message:
+        return ChatResponse(text="No user message found")
+    
+    # Use the chat service with characterId directly
+    service = get_chat_service()
+    
+    # Generate AI response
+    result_chunks: List[str] = []
+    async for token in service.stream_chat(request.characterId, None, last_message):
+        result_chunks.append(token)
+    ai_response = "".join(result_chunks).strip()
+    
+    return ChatResponse(text=ai_response)
+
+
+
 @app.post("/api/v1/sessions/{sessionId}/audio", tags=["sessions"], summary="Send an audio message")
 async def send_audio(
     sessionId: str = Path(..., description="Session ID"),
@@ -156,28 +205,27 @@ async def asr(
     return {"text": f"This is a placeholder transcript for {audio_size} bytes of audio."}
 
 
-@app.post("/api/v1/media/tts", tags=["media"], summary="Upload text and get audio")
+@app.post("/v1/tts", tags=["media"], summary="Upload text and get audio")
 async def tts(
-    body: TTSRequest = None,
-    request: Request = None,
-) -> StreamingResponse:
-    # Use Pydantic model if available, otherwise fallback to manual parsing
-    if body and body.text:
-        text = body.text
-    else:
-        # Fallback parsing for non-JSON requests
-        content_type = request.headers.get("content-type", "").lower()
-        if "application/json" in content_type:
-            body_dict = await request.json()
-            text = str(body_dict.get("text", ""))
-        else:
-            form = await request.form()
-            text = str(form.get("text", ""))
-
-    # Produce placeholder audio bytes
-    dummy_audio = b"FAKEAUDIO"
-    return StreamingResponse(
-        BytesIO(dummy_audio),
-        media_type="audio/mpeg",
-        headers={"Content-Disposition": "attachment; filename=tts.mp3"},
+    request: TtsRequest,
+) -> TtsResult:
+    """
+    TTS interface for external services to call via Feign.
+    Converts text to speech and returns audio data in Base64 format.
+    """
+    # 这里实现实际的 TTS 逻辑
+    # 目前返回模拟的音频数据
+    # 在实际应用中，这里会调用 TTS 服务生成音频文件
+    
+    # 生成模拟的音频数据（Base64 编码）
+    dummy_audio_bytes = b"FAKEAUDIO"
+    audio_data_base64 = base64.b64encode(dummy_audio_bytes).decode('utf-8')
+    
+    # 模拟音频时长（毫秒）
+    estimated_duration = len(request.text) * 100  # 简单估算：每个字符100毫秒
+    
+    return TtsResult(
+        audioData=audio_data_base64,
+        format="mp3",
+        duration=estimated_duration
     )

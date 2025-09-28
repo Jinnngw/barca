@@ -31,7 +31,7 @@ public class SessionController {
 
     @PostMapping("/{sessionId}/messages")
     public SendMessageResponse sendText(@PathVariable String sessionId, @RequestBody SendTextRequest request) {
-        String characterId = repo.getCharacterId(sessionId).orElseThrow(() -> new IllegalArgumentException("Session not found"));
+        //String characterId = repo.getCharacterId(sessionId).orElseThrow(() -> new IllegalArgumentException("Session not found"));
 
         // 保存用户消息
         MessageItem userMessage = MemoryRepo.msg("user", request.getText(), null);
@@ -39,15 +39,17 @@ public class SessionController {
 
         // 组装历史记录
         List<ChatClient.Message> history = toAiHistory(sessionId);
-        ChatClient.ChatResponse response = chatClient.chat(new ChatClient.ChatRequest(characterId, history));
+        ChatClient.ChatResponse response = chatClient.chat(new ChatClient.ChatRequest(sessionId, history));
 
         // 保存 AI 回复消息
         MessageItem assistantMessage = MemoryRepo.msg("assistant", response.getText(), null);
         repo.appendMessage(sessionId, assistantMessage);
 
         // 可选：TTS 转语音
-        TtsClient.TtsResult ttsResult = ttsClient.tts(new TtsClient.TtsRequest(response.getText(), "en-US-female-1"));
-        assistantMessage.setAudioUrl(ttsResult.getAudioUrl());
+        TtsClient.TtsResult ttsResult = ttsClient.tts(new TtsClient.TtsRequest(response.getText(), sessionId));
+        assistantMessage.setAudioData(ttsResult.getAudioData());
+        assistantMessage.setAudioFormat(ttsResult.getFormat());
+        assistantMessage.setAudioDuration(ttsResult.getDuration());
 
         return new SendMessageResponse(userMessage, assistantMessage);
     }
@@ -59,7 +61,7 @@ public class SessionController {
         String userText = asr.getText();  // 获取 ASR 转换后的文本
 
         // 2. 将转换后的文本交给 AI 模型生成回复
-        String characterId = repo.getCharacterId(sessionId).orElseThrow(() -> new IllegalArgumentException("Session not found"));
+        //String characterId = repo.getCharacterId(sessionId).orElseThrow(() -> new IllegalArgumentException("Session not found"));
 
         // 保存用户消息
         MessageItem userMessage = MemoryRepo.msg("user", userText, null);
@@ -67,15 +69,17 @@ public class SessionController {
 
         // 获取历史记录，用于生成 AI 回复
         List<ChatClient.Message> history = toAiHistory(sessionId);
-        ChatClient.ChatResponse response = chatClient.chat(new ChatClient.ChatRequest(characterId, history));
+        ChatClient.ChatResponse response = chatClient.chat(new ChatClient.ChatRequest(sessionId, history));
 
         // 3. 保存 AI 回复的消息
         MessageItem assistantMessage = MemoryRepo.msg("assistant", response.getText(), null);
         repo.appendMessage(sessionId, assistantMessage);
 
-        // 4. 可选：调用 TTS 生成语音，返回音频 URL
-        TtsClient.TtsResult ttsResult = ttsClient.tts(new TtsClient.TtsRequest(response.getText(), "en-US-female-1"));
-        assistantMessage.setAudioUrl(ttsResult.getAudioUrl());
+        // 4. 可选：调用 TTS 生成语音，返回音频数据
+        TtsClient.TtsResult ttsResult = ttsClient.tts(new TtsClient.TtsRequest(response.getText(), sessionId));
+        assistantMessage.setAudioData(ttsResult.getAudioData());
+        assistantMessage.setAudioFormat(ttsResult.getFormat());
+        assistantMessage.setAudioDuration(ttsResult.getDuration());
 
         // 返回消息
         return new SendMessageResponse(userMessage, assistantMessage);

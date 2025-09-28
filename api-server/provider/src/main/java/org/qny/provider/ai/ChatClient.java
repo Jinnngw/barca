@@ -2,6 +2,7 @@ package org.qny.provider.ai;
 
 import lombok.AllArgsConstructor;
 import lombok.Data;
+import lombok.NoArgsConstructor;
 import org.springframework.cloud.openfeign.FeignClient;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -24,6 +25,7 @@ public interface ChatClient {
 
     @Data
     @AllArgsConstructor
+    @NoArgsConstructor
     class Message {
         private String role;
         private String content;
@@ -32,6 +34,8 @@ public interface ChatClient {
     }
 
     @Data
+    @AllArgsConstructor
+    @NoArgsConstructor
     class ChatResponse {
         private String text;
 

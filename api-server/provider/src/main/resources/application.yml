@@ -18,8 +18,8 @@ feign:
         readTimeout: 60000
 ai:
   chat:
-    base-url: http://ai-chat-service:9000
+    base-url: http://127.0.0.1:8000
   asr:
-    base-url: http://ai-asr-service:9100
+    base-url: http://127.0.0.1:8000
   tts:
-    base-url: http://ai-tts-service:9200
+    base-url: http://127.0.0.1:8000

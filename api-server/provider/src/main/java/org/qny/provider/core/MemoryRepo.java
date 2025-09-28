@@ -33,6 +33,12 @@ public class MemoryRepo {
     }
 
     public static MessageItem msg(String role, String text, String audioUrl) {
-        return new MessageItem(UUID.randomUUID().toString(), role, text, audioUrl, Instant.now());
+        return MessageItem.builder()
+                .id(UUID.randomUUID().toString())
+                .role(role)
+                .text(text)
+                .audioUrl(audioUrl)
+                .time(Instant.now())
+                .build();
     }
 }
