@@ -4,6 +4,7 @@ import uuid
 from typing import AsyncGenerator, Dict, Optional, List, Literal
 from io import BytesIO
 
+import httpx
 from fastapi import FastAPI, Request, Query, Path, Form, File, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from sse_starlette.sse import EventSourceResponse
@@ -174,10 +175,49 @@ async def tts(
             form = await request.form()
             text = str(form.get("text", ""))
 
-    # Produce placeholder audio bytes
-    dummy_audio = b"FAKEAUDIO"
-    return StreamingResponse(
-        BytesIO(dummy_audio),
-        media_type="audio/mpeg",
-        headers={"Content-Disposition": "attachment; filename=tts.mp3"},
-    )
+    if not text:
+        return JSONResponse({"error": "No text provided"}, status_code=400)
+
+    api_key = os.environ.get("QINIU_API_KEY", "sk-8b4e21c2efb5e8cc357dc1f3932dca4d644b79758d2a7bd2fe3d053ca809d5e2")
+    
+    try:
+        # Call Qiniu Cloud TTS API
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://openai.qiniu.com/v1/voice/tts",
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "Content-Type": "application/json"
+                },
+                json={
+                    "text": text,
+                    "voice_type": "zh-CN-XiaoxiaoNeural",
+                    "encoding": "mp3",
+                    "speed_ratio": 1.0
+                }
+            )
+            response.raise_for_status()
+            
+            # Return the audio stream
+            return StreamingResponse(
+                BytesIO(response.content),
+                media_type="audio/mpeg",
+                headers={"Content-Disposition": "attachment; filename=tts.mp3"},
+            )
+            
+    except httpx.HTTPStatusError as e:
+        return JSONResponse(
+            {"error": f"TTS API error: {e.response.status_code} - {e.response.text}"}, 
+            status_code=e.response.status_code
+        )
+    except httpx.RequestError as e:
+        return JSONResponse(
+            {"error": f"TTS request error: {str(e)}"}, 
+            status_code=500
+        )
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"TTS processing error: {str(e)}"}, 
+            status_code=500
+        )
+
